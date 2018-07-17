@@ -1323,6 +1323,9 @@ namespace leveldb {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
+    /**
+     * 为释放内存和外存表空间的函数
+     */
     Status DBImpl::MakeRoomForWrite(bool force) {
         mutex_.AssertHeld();
         assert(!writers_.empty());
@@ -1330,43 +1333,28 @@ namespace leveldb {
         Status s;
         while (true) {
             if (!bg_error_.ok()) {
-                // Yield previous error
                 s = bg_error_;
                 break;
-            } else if (
-                    allow_delay &&
-                    versions_->NumLevelFiles(0) >= config::kL0_SlowdownWritesTrigger) {
-                // We are getting close to hitting a hard limit on the number of
-                // L0 files.  Rather than delaying a single write by several
-                // seconds when we hit the hard limit, start delaying each
-                // individual write by 1ms to reduce latency variance.  Also,
-                // this delay hands over some CPU to the compaction thread in
-                // case it is sharing the same core as the writer.
+            } else if (allow_delay && versions_->NumLevelFiles(0) >= config::kL0_SlowdownWritesTrigger) {
                 mutex_.Unlock();
                 env_->SleepForMicroseconds(1000);
-                allow_delay = false;  // Do not delay a single write more than once
+                allow_delay = false;
                 mutex_.Lock();
-            } else if (!force &&
-                       (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
-                // There is room in current memtable
+            }else if(!force && (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)){
                 break;
-            } else if (imm_ != nullptr) {
-                // We have filled up the current memtable, but the previous
-                // one is still being compacted, so we wait.
-                Log(options_.info_log, "Current memtable full; waiting...\n");
+            }else if(imm_ != nullptr){
+                Log(options_.info_log,"Current memtable full;waiting...\n");
                 background_work_finished_signal_.Wait();
-            } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
-                // There are too many level-0 files.
-                Log(options_.info_log, "Too many L0 files; waiting...\n");
+            }else if(versions_->NumLevelFiles(0)>=config::kL0_StopWritesTrigger){
+                Log(options_.info_log,"Too many L0 files; waiting...\n");
                 background_work_finished_signal_.Wait();
-            } else {
-                // Attempt to switch to a new memtable and trigger compaction of old
+            }else{
+                ///允许转换一个新的内存块并且触发旧的系统的回收
                 assert(versions_->PrevLogNumber() == 0);
-                uint64_t new_log_number = versions_->NewFileNumber();
+                uint64_t  new_log_number = versions_->NewFileNumber();
                 WritableFile *lfile = nullptr;
-                s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
-                if (!s.ok()) {
-                    // Avoid chewing through file number space in a tight loop.
+                s = env_->NewWritableFile(LogFileName(dbname_,new_log_number),&lfile);
+                if(!s.ok()){
                     versions_->ReuseFileNumber(new_log_number);
                     break;
                 }
@@ -1379,7 +1367,8 @@ namespace leveldb {
                 has_imm_.Release_Store(imm_);
                 mem_ = new MemTable(internal_comparator_);
                 mem_->Ref();
-                force = false;   // Do not force another compaction if have room
+                /// 如果有剩余空间时不要进行压缩
+                force = false;
                 MaybeScheduleCompaction();
             }
         }
