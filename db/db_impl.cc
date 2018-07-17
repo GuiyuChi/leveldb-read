@@ -40,6 +40,7 @@ namespace leveldb {
     const int kNumNonTableCacheFiles = 10;
 
 // Information kept for every waiting writer
+/// 为每一等待的写进程保存的信息
     struct DBImpl::Writer {
         Status status;
         WriteBatch *batch;
@@ -1231,39 +1232,39 @@ namespace leveldb {
                 mutex_.Unlock();
                 status = log_->AddRecord(WriteBatchInternal::Contents(updates));
                 bool sync_error = false;
-                if(status.ok() && options.sync){
+                if (status.ok() && options.sync) {
                     status = logfile_->Sync();
-                    if(!status.ok()){
+                    if (!status.ok()) {
                         sync_error = true;
                     }
                 }
-                if(status.ok()){
-                    status = WriteBatchInternal::InsertInto(updates,mem_);
+                if (status.ok()) {
+                    status = WriteBatchInternal::InsertInto(updates, mem_);
                 }
                 mutex_.Lock();
-                if(sync_error){
+                if (sync_error) {
                     RecordBackgroundError(status);
                 }
             }
-            if(updates == tmp_batch_)
+            if (updates == tmp_batch_)
                 tmp_batch_->Clear();
 
             versions_->SetLastSequence(last_sequence);
         }
 
-        while(true){
+        while (true) {
             Writer *ready = writers_.front();
             writers_.pop_front();
-            if(ready != &w){
+            if (ready != &w) {
                 ready->status = status;
                 ready->done = true;
                 ready->cv.Signal();
             }
-            if(ready == last_writer)
+            if (ready == last_writer)
                 break;
         }
 
-        if(!writers_.empty()){
+        if (!writers_.empty()) {
             writers_.front()->cv.Signal();
         }
 
